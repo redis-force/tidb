@@ -32,6 +32,9 @@ func (e *SearchExecutor) Next(ctx context.Context, req *chunk.Chunk) error {
 	if err != nil {
 		return err
 	}
+	if result == nil {
+		return nil
+	}
 	if !e.ok {
 		for _, row := range result.Rows {
 			req.AppendInt64(0, row.DocID)
