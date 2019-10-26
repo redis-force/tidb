@@ -62,6 +62,7 @@ type tableHintInfo struct {
 	indexHintList             []indexHintInfo
 	flashTables               []hintTableInfo
 	aggHints                  aggHintInfo
+	searchHint                searchHintInfo
 }
 
 type hintTableInfo struct {
@@ -80,6 +81,11 @@ type indexHintInfo struct {
 type aggHintInfo struct {
 	preferAggType  uint
 	preferAggToCop bool
+}
+
+type searchHintInfo struct {
+	query model.CIStr
+	mode  ast.SearchModifierMode
 }
 
 func tableNames2HintTableInfo(ctx sessionctx.Context, hintTables []ast.HintTable, p *BlockHintProcessor, nodeType nodeType, currentOffset int) []hintTableInfo {

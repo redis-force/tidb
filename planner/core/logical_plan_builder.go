@@ -77,6 +77,8 @@ const (
 	HintTiFlash = "tiflash"
 	// HintTiKV is a label represents the tikv storage type.
 	HintTiKV = "tikv"
+	// HintSearch is a label represents search type.
+	HintSearch = "search"
 )
 
 const (
@@ -1998,6 +2000,7 @@ func (b *PlanBuilder) pushTableHints(hints []*ast.TableOptimizerHint, nodeType n
 		indexHintList                               []indexHintInfo
 		tiflashTables                               []hintTableInfo
 		aggHints                                    aggHintInfo
+		searchHint                                  searchHintInfo
 	)
 	for _, hint := range hints {
 		switch hint.HintName.L {
@@ -2049,6 +2052,11 @@ func (b *PlanBuilder) pushTableHints(hints []*ast.TableOptimizerHint, nodeType n
 			if hint.StoreType.L == HintTiFlash {
 				tiflashTables = tableNames2HintTableInfo(b.ctx, hint.Tables, b.hintProcessor, nodeType, currentLevel)
 			}
+		case HintSearch:
+			searchHint = searchHintInfo{
+				query: hint.SearchQuery,
+				mode:  hint.SearchModifier,
+			}
 		default:
 			// ignore hints that not implemented
 		}
@@ -2060,6 +2068,7 @@ func (b *PlanBuilder) pushTableHints(hints []*ast.TableOptimizerHint, nodeType n
 		indexHintList:             indexHintList,
 		flashTables:               tiflashTables,
 		aggHints:                  aggHints,
+		searchHint:                searchHint,
 	})
 }
 
