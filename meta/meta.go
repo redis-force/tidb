@@ -266,7 +266,7 @@ func (m *Meta) createFulltextIndex(tableInfo *model.TableInfo, index *model.Inde
 	for i, column := range index.Columns {
 		fields[i] = search_model.Field{Name: column.Name.L}
 	}
-	return storage.Create(context.Background(), "", tableInfo.Name.L, fields)
+	return storage.Create(context.Background(), "tisearch", tableInfo.Name.L, fields)
 }
 
 // CreateTableOrView creates a table with tableInfo in database.

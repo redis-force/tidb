@@ -197,6 +197,8 @@ github.com/redis-force/parser v0.0.0-20191026055155-2ad1e3d7c5cf h1:rXUfzuQd4xLP
 github.com/redis-force/parser v0.0.0-20191026055155-2ad1e3d7c5cf/go.mod h1:FYeoeeD5jWbAfwKeK2m2mOQr0Q2FL2UFsPUTXu9QJNI=
 github.com/redis-force/tisearch v0.0.0-20191026073852-5d3166749e66 h1:n6POMg63Mqwbx6gdOI1N5mNJ2zbGOXzumkH/5VI+bQQ=
 github.com/redis-force/tisearch v0.0.0-20191026073852-5d3166749e66/go.mod h1:WP1pbrSr8CZ3O/h1D2yUCID0Wz9+EKDdQKt4H6V0p9o=
+github.com/redis-force/tisearch v0.0.0-20191026112349-3cf5ce52aa84 h1:CW13zTR9LZX/Cdnhu0P7QwMFgufwQ7Xdj73+kp3ZhBE=
+github.com/redis-force/tisearch v0.0.0-20191026112349-3cf5ce52aa84/go.mod h1:WP1pbrSr8CZ3O/h1D2yUCID0Wz9+EKDdQKt4H6V0p9o=
 github.com/remyoudompheng/bigfft v0.0.0-20190512091148-babf20351dd7 h1:FUL3b97ZY2EPqg2NbXKuMHs5pXJB9hjj1fDHnF2vl28=
 github.com/remyoudompheng/bigfft v0.0.0-20190512091148-babf20351dd7/go.mod h1:qqbHyh8v60DhA7CoWK5oRCqLrMHRGoxYCSS9EjAz6Eo=
 github.com/sergi/go-diff v1.0.1-0.20180205163309-da645544ed44/go.mod h1:0CfEIISq7TuYL3j771MWULgwwjU+GofnZX9QAmXWZgo=

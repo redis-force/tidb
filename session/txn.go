@@ -62,6 +62,7 @@ type TxnState struct {
 func (st *TxnState) init() {
 	st.buf = kv.NewMemDbBuffer(kv.DefaultTxnMembufCap)
 	st.mutations = make(map[int64]*binlog.TableMutation)
+	st.fulltextMutations = make(map[int64]*sessionctx.FulltextIndexMutations)
 }
 
 // Valid implements the kv.Transaction interface.
@@ -195,20 +196,12 @@ func (st *TxnState) Commit(ctx context.Context) error {
 		}
 	})
 
-	// Write fulltext index mutations
-	if err1 := st.writeFulltextIndex(ctx); err1 != nil {
-		logutil.BgLogger().Error("write fulltext index failed",
-			zap.String("TxnState", st.GoString()),
-			zap.Stack("something must be wrong"), zap.Error(err1))
-		return errors.New("failed to write fulltext index")
-	}
-
 	return st.Transaction.Commit(ctx)
 }
 
 func (st *TxnState) writeFulltextIndex(ctx context.Context) error {
 	for _, mutations := range st.fulltextMutations {
-		db := mutations.Database
+		db := "tisearch"
 		tb := mutations.Table
 		fields := make(map[int64][]model.Field)
 		for _, m := range mutations.Get() {
@@ -333,6 +326,9 @@ func (st *TxnState) cleanup() {
 	st.buf.Reset()
 	for key := range st.mutations {
 		delete(st.mutations, key)
+	}
+	for key := range st.fulltextMutations {
+		delete(st.fulltextMutations, key)
 	}
 	if st.dirtyTableOP != nil {
 		empty := dirtyTableOperation{}
@@ -494,6 +490,14 @@ func (s *session) StmtCommit() error {
 			mergeToDirtyDB(dirtyDB, op)
 		}
 	}
+	// Write fulltext index mutations
+	if err1 := st.writeFulltextIndex(context.Background()); err1 != nil {
+		logutil.BgLogger().Error("write fulltext index failed",
+			zap.String("TxnState", st.GoString()),
+			zap.Stack("something must be wrong"), zap.Error(err1))
+		return errors.New("failed to write fulltext index")
+	}
+
 	st.ConfirmAssertions(true)
 	return nil
 }
