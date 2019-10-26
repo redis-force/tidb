@@ -2480,12 +2480,12 @@ func (b *PlanBuilder) buildDataSource(ctx context.Context, tn *ast.TableName, as
 	}
 
 	// Add search ext column.
-	if b.hasSearchHint() {
-		ds.Columns = append(ds.Columns, ds.newSearchColumnInfo())
-		searchExtCol := ds.newSearchHandleSchemaCol()
-		schema.Append(searchExtCol)
-		ds.TblCols = append(ds.TblCols, searchExtCol)
-	}
+	// if b.hasSearchHint() {
+	// 	ds.Columns = append(ds.Columns, ds.newSearchColumnInfo())
+	// 	searchExtCol := ds.newSearchHandleSchemaCol()
+	// 	schema.Append(searchExtCol)
+	// 	ds.TblCols = append(ds.TblCols, searchExtCol)
+	// }
 
 	ds.SetSchema(schema)
 	ds.setPreferredStoreType(b.TableHints())

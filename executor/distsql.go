@@ -88,6 +88,8 @@ type lookupTableTask struct {
 	// Step 4   is  completed in "IndexLookUpExecutor.Next".
 	memUsage   int64
 	memTracker *memory.Tracker
+
+	searchResults map[int64][]byte
 }
 
 func (task *lookupTableTask) Len() int {
@@ -252,10 +254,23 @@ func (e *IndexReaderExecutor) Close() error {
 	return err
 }
 
+func newFieldChunk(capacity int) *chunk.Chunk {
+	return chunk.NewChunkWithCapacity([]*types.FieldType{types.NewFieldType(mysql.TypeLonglong), types.NewFieldType(mysql.TypeVarchar)}, capacity)
+}
+
 // Next implements the Executor Next interface.
 func (e *IndexReaderExecutor) Next(ctx context.Context, req *chunk.Chunk) error {
 	if e.searcher != nil {
-		return e.searcher.Next(ctx, req)
+		chk := newFieldChunk(req.Capacity())
+		err := e.searcher.Next(ctx, chk)
+		if err != nil {
+			return err
+		}
+		req.Reset()
+		for i := 0; i < chk.NumRows(); i++ {
+			req.AppendBytes(0, chk.GetRow(i).GetBytes(1))
+		}
+		return nil
 	}
 	err := e.result.Next(ctx, req)
 	if err != nil {
@@ -443,6 +458,24 @@ func (e *IndexLookUpExecutor) startWorkers(ctx context.Context, initBatchSize in
 
 var indexLookupDistSQLTrackerLabel fmt.Stringer = stringutil.StringerStr("IndexLookupDistSQLTracker")
 
+type searchWrapper struct {
+	searcher Executor
+}
+
+func (w searchWrapper) Fetch(ctx context.Context) {
+	w.searcher.Open(ctx)
+}
+
+func (w searchWrapper) NextRaw(context.Context) ([]byte, error) { panic("NextRaw not supported") }
+
+func (w searchWrapper) Next(ctx context.Context, chk *chunk.Chunk) error {
+	return w.searcher.Next(ctx, chk)
+}
+
+func (w searchWrapper) Close() error {
+	return w.searcher.Close()
+}
+
 // startIndexWorker launch a background goroutine to fetch handles, send the results to workCh.
 func (e *IndexLookUpExecutor) startIndexWorker(ctx context.Context, kvRanges []kv.KeyRange, workCh chan<- *lookupTableTask, initBatchSize int) error {
 	if e.runtimeStats != nil {
@@ -452,27 +485,34 @@ func (e *IndexLookUpExecutor) startIndexWorker(ctx context.Context, kvRanges []k
 
 	tracker := memory.NewTracker(stringutil.StringerStr("IndexWorker"), e.ctx.GetSessionVars().MemQuotaIndexLookupReader)
 	tracker.AttachTo(e.memTracker)
-	var builder distsql.RequestBuilder
-	kvReq, err := builder.SetKeyRanges(kvRanges).
-		SetDAGRequest(e.dagPB).
-		SetDesc(e.desc).
-		SetKeepOrder(e.keepOrder).
-		SetStreaming(e.indexStreaming).
-		SetFromSessionVars(e.ctx.GetSessionVars()).
-		SetMemTracker(tracker).
-		Build()
-	if err != nil {
-		return err
+
+	var result distsql.SelectResult
+	if e.searcher != nil {
+		result = searchWrapper{searcher: e.searcher}
+	} else {
+		var builder distsql.RequestBuilder
+		kvReq, err := builder.SetKeyRanges(kvRanges).
+			SetDAGRequest(e.dagPB).
+			SetDesc(e.desc).
+			SetKeepOrder(e.keepOrder).
+			SetStreaming(e.indexStreaming).
+			SetFromSessionVars(e.ctx.GetSessionVars()).
+			SetMemTracker(tracker).
+			Build()
+		if err != nil {
+			return err
+		}
+		tps := []*types.FieldType{types.NewFieldType(mysql.TypeLonglong)}
+		if e.checkIndexValue != nil {
+			tps = e.idxColTps
+		}
+		// Since the first read only need handle information. So its returned col is only 1.
+		result, err = distsql.SelectWithRuntimeStats(ctx, e.ctx, kvReq, tps, e.feedback, getPhysicalPlanIDs(e.idxPlans), e.id)
+		if err != nil {
+			return err
+		}
 	}
-	tps := []*types.FieldType{types.NewFieldType(mysql.TypeLonglong)}
-	if e.checkIndexValue != nil {
-		tps = e.idxColTps
-	}
-	// Since the first read only need handle information. So its returned col is only 1.
-	result, err := distsql.SelectWithRuntimeStats(ctx, e.ctx, kvReq, tps, e.feedback, getPhysicalPlanIDs(e.idxPlans), e.id)
-	if err != nil {
-		return err
-	}
+
 	result.Fetch(ctx)
 	worker := &indexWorker{
 		idxLookup:       e,
@@ -485,6 +525,7 @@ func (e *IndexLookUpExecutor) startIndexWorker(ctx context.Context, kvRanges []k
 		maxBatchSize:    e.ctx.GetSessionVars().IndexLookupSize,
 		maxChunkSize:    e.maxChunkSize,
 		PushedLimit:     e.PushedLimit,
+		useSearch:       e.searcher != nil,
 	}
 	if worker.batchSize > worker.maxBatchSize {
 		worker.batchSize = worker.maxBatchSize
@@ -523,12 +564,13 @@ func (e *IndexLookUpExecutor) startTableWorker(ctx context.Context, workCh <-cha
 			idxLookup:       e,
 			workCh:          workCh,
 			finished:        e.finished,
-			buildTblReader:  e.buildTableReader,
+			buildTblReader:  e.buildTableReader2,
 			keepOrder:       e.keepOrder,
 			handleIdx:       e.handleIdx,
 			checkIndexValue: e.checkIndexValue,
 			memTracker: memory.NewTracker(stringutil.MemoizeStr(func() string { return "TableWorker_" + strconv.Itoa(i) }),
 				e.ctx.GetSessionVars().MemQuotaIndexLookupReader),
+			useSearch: e.searcher != nil,
 		}
 		worker.memTracker.AttachTo(e.memTracker)
 		ctx1, cancel := context.WithCancel(ctx)
@@ -556,6 +598,36 @@ func (e *IndexLookUpExecutor) buildTableReader(ctx context.Context, handles []in
 		return nil, err
 	}
 	return tableReader, nil
+}
+
+type replaceExecutor struct {
+	Executor
+	searchResults map[int64][]byte
+}
+
+func (e *replaceExecutor) Next(ctx context.Context, req *chunk.Chunk) error {
+	err := e.Executor.Next(ctx, req)
+	if err != nil {
+		return err
+	}
+	col := chunk.NewColumn(types.NewFieldType(mysql.TypeVarchar), req.NumRows())
+	for i := 0; i < req.NumRows(); i++ {
+		handleID := req.GetRow(i).GetInt64(0)
+		col.AppendBytes(e.searchResults[handleID])
+	}
+	req.SetCol(req.NumCols()-1, col)
+	return nil
+}
+
+func (e *IndexLookUpExecutor) buildTableReader2(ctx context.Context, handles []int64, searchResults map[int64][]byte) (Executor, error) {
+	exec, err := e.buildTableReader(ctx, handles)
+	if err != nil {
+		return nil, err
+	}
+	return &replaceExecutor{
+		Executor:      exec,
+		searchResults: searchResults,
+	}, nil
 }
 
 // Close implements Exec Close interface.
@@ -644,6 +716,7 @@ type indexWorker struct {
 	*checkIndexValue
 	// PushedLimit is used to skip the preceding and tailing handles when Limit is sunk into IndexLookUpReader.
 	PushedLimit *plannercore.PushedDownLimit
+	useSearch   bool
 }
 
 // fetchHandles fetches a batch of handles from index data and builds the index lookup tasks.
@@ -670,11 +743,13 @@ func (w *indexWorker) fetchHandles(ctx context.Context, result distsql.SelectRes
 	var chk *chunk.Chunk
 	if w.checkIndexValue != nil {
 		chk = chunk.NewChunkWithCapacity(w.idxColTps, w.maxChunkSize)
+	} else if w.useSearch {
+		chk = newFieldChunk(w.maxChunkSize)
 	} else {
 		chk = chunk.NewChunkWithCapacity([]*types.FieldType{types.NewFieldType(mysql.TypeLonglong)}, w.idxLookup.maxChunkSize)
 	}
 	for {
-		handles, retChunk, scannedKeys, err := w.extractTaskHandles(ctx, chk, result, count)
+		handles, retChunk, scannedKeys, searchResults, err := w.extractTaskHandles(ctx, chk, result, count)
 		if err != nil {
 			doneCh := make(chan error, 1)
 			doneCh <- err
@@ -687,7 +762,7 @@ func (w *indexWorker) fetchHandles(ctx context.Context, result distsql.SelectRes
 		if len(handles) == 0 {
 			return count, nil
 		}
-		task := w.buildTableTask(handles, retChunk)
+		task := w.buildTableTask(handles, retChunk, searchResults)
 		select {
 		case <-ctx.Done():
 			return count, nil
@@ -700,8 +775,11 @@ func (w *indexWorker) fetchHandles(ctx context.Context, result distsql.SelectRes
 }
 
 func (w *indexWorker) extractTaskHandles(ctx context.Context, chk *chunk.Chunk, idxResult distsql.SelectResult, count uint64) (
-	handles []int64, retChk *chunk.Chunk, scannedKeys uint64, err error) {
+	handles []int64, retChk *chunk.Chunk, scannedKeys uint64, searchResults map[int64][]byte, err error) {
 	handleOffset := chk.NumCols() - 1
+	if w.useSearch {
+		handleOffset = 0
+	}
 	handles = make([]int64, 0, w.batchSize)
 	// PushedLimit would always be nil for CheckIndex or CheckTable, we add this check just for insurance.
 	checkLimit := (w.PushedLimit != nil) && (w.checkIndexValue == nil)
@@ -709,7 +787,7 @@ func (w *indexWorker) extractTaskHandles(ctx context.Context, chk *chunk.Chunk, 
 		requiredRows := w.batchSize - len(handles)
 		if checkLimit {
 			if w.PushedLimit.Offset+w.PushedLimit.Count <= scannedKeys+count {
-				return handles, nil, scannedKeys, nil
+				return handles, nil, scannedKeys, searchResults, nil
 			}
 			leftCnt := w.PushedLimit.Offset + w.PushedLimit.Count - scannedKeys - count
 			if uint64(requiredRows) > leftCnt {
@@ -719,10 +797,10 @@ func (w *indexWorker) extractTaskHandles(ctx context.Context, chk *chunk.Chunk, 
 		chk.SetRequiredRows(requiredRows, w.maxChunkSize)
 		err = errors.Trace(idxResult.Next(ctx, chk))
 		if err != nil {
-			return handles, nil, scannedKeys, err
+			return handles, nil, scannedKeys, searchResults, err
 		}
 		if chk.NumRows() == 0 {
-			return handles, retChk, scannedKeys, nil
+			return handles, retChk, scannedKeys, searchResults, nil
 		}
 		for i := 0; i < chk.NumRows(); i++ {
 			scannedKeys++
@@ -733,7 +811,7 @@ func (w *indexWorker) extractTaskHandles(ctx context.Context, chk *chunk.Chunk, 
 				}
 				if (count + scannedKeys) > (w.PushedLimit.Offset + w.PushedLimit.Count) {
 					// Skip the handles after Offset+Count.
-					return handles, nil, scannedKeys, nil
+					return handles, nil, scannedKeys, searchResults, nil
 				}
 			}
 			h := chk.GetRow(i).GetInt64(handleOffset)
@@ -745,15 +823,23 @@ func (w *indexWorker) extractTaskHandles(ctx context.Context, chk *chunk.Chunk, 
 			}
 			retChk.Append(chk, 0, chk.NumRows())
 		}
+		if w.useSearch {
+			if searchResults == nil {
+				searchResults = make(map[int64][]byte)
+			}
+			for i := 0; i < chk.NumRows(); i++ {
+				searchResults[chk.GetRow(i).GetInt64(0)] = chk.GetRow(i).GetBytes(1)
+			}
+		}
 	}
 	w.batchSize *= 2
 	if w.batchSize > w.maxBatchSize {
 		w.batchSize = w.maxBatchSize
 	}
-	return handles, retChk, scannedKeys, nil
+	return handles, retChk, scannedKeys, searchResults, nil
 }
 
-func (w *indexWorker) buildTableTask(handles []int64, retChk *chunk.Chunk) *lookupTableTask {
+func (w *indexWorker) buildTableTask(handles []int64, retChk *chunk.Chunk, searchResults map[int64][]byte) *lookupTableTask {
 	var indexOrder map[int64]int
 	var duplicatedIndexOrder map[int64]int
 	if w.keepOrder {
@@ -782,6 +868,7 @@ func (w *indexWorker) buildTableTask(handles []int64, retChk *chunk.Chunk) *look
 		indexOrder:           indexOrder,
 		duplicatedIndexOrder: duplicatedIndexOrder,
 		idxRows:              retChk,
+		searchResults:        searchResults,
 	}
 
 	task.doneCh = make(chan error, 1)
@@ -793,7 +880,7 @@ type tableWorker struct {
 	idxLookup      *IndexLookUpExecutor
 	workCh         <-chan *lookupTableTask
 	finished       <-chan struct{}
-	buildTblReader func(ctx context.Context, handles []int64) (Executor, error)
+	buildTblReader func(ctx context.Context, handles []int64, searchResult map[int64][]byte) (Executor, error)
 	keepOrder      bool
 	handleIdx      int
 
@@ -802,6 +889,7 @@ type tableWorker struct {
 
 	// checkIndexValue is used to check the consistency of the index data.
 	*checkIndexValue
+	useSearch bool
 }
 
 // pickAndExecTask picks tasks from workCh, and execute them.
@@ -897,7 +985,7 @@ func (w *tableWorker) compareData(ctx context.Context, task *lookupTableTask, ta
 // executeTask executes the table look up tasks. We will construct a table reader and send request by handles.
 // Then we hold the returning rows and finish this task.
 func (w *tableWorker) executeTask(ctx context.Context, task *lookupTableTask) error {
-	tableReader, err := w.buildTblReader(ctx, task.handles)
+	tableReader, err := w.buildTblReader(ctx, task.handles, task.searchResults)
 	if err != nil {
 		logutil.Logger(ctx).Error("build table reader failed", zap.Error(err))
 		return err
