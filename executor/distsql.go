@@ -606,6 +606,9 @@ type replaceExecutor struct {
 }
 
 func (e *replaceExecutor) Next(ctx context.Context, req *chunk.Chunk) error {
+	if len(e.searchResults) == 0 {
+		return e.Executor.Next(ctx, req)
+	}
 	err := e.Executor.Next(ctx, req)
 	if err != nil {
 		return err
