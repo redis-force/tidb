@@ -258,6 +258,11 @@ func (m *Meta) UpdateDatabase(dbInfo *model.DBInfo) error {
 	return m.txn.HSet(mDBs, dbKey, data)
 }
 
+func (m *Meta) createFulltextIndex(tableInfo *model.TableInfo, index *model.IndexInfo) error {
+	// TODO add code to create schema mapping on ES
+	return nil
+}
+
 // CreateTableOrView creates a table with tableInfo in database.
 func (m *Meta) CreateTableOrView(dbID int64, tableInfo *model.TableInfo) error {
 	// Check if db exists.
@@ -270,6 +275,14 @@ func (m *Meta) CreateTableOrView(dbID int64, tableInfo *model.TableInfo) error {
 	tableKey := m.tableKey(tableInfo.ID)
 	if err := m.checkTableNotExists(dbKey, tableKey); err != nil {
 		return errors.Trace(err)
+	}
+
+	for _, index := range tableInfo.Indices {
+		if index.Fulltext {
+			if err := m.createFulltextIndex(tableInfo, index); err != nil {
+				return errors.Trace(err)
+			}
+		}
 	}
 
 	data, err := json.Marshal(tableInfo)

@@ -764,6 +764,8 @@ func (e *ShowExec) fetchShowCreateTable() error {
 			buf.WriteString("  PRIMARY KEY ")
 		} else if idxInfo.Unique {
 			fmt.Fprintf(&buf, "  UNIQUE KEY %s ", escape(idxInfo.Name, sqlMode))
+		} else if idxInfo.Fulltext {
+			fmt.Fprintf(&buf, "  FULLTEXT KEY %s ", escape(idxInfo.Name, sqlMode))
 		} else {
 			fmt.Fprintf(&buf, "  KEY %s ", escape(idxInfo.Name, sqlMode))
 		}
