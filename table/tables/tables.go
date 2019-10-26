@@ -47,14 +47,15 @@ import (
 type tableCommon struct {
 	tableID int64
 	// physicalTableID is a unique int64 to identify a physical table.
-	physicalTableID int64
-	Columns         []*table.Column
-	publicColumns   []*table.Column
-	writableColumns []*table.Column
-	writableIndices []table.Index
-	indices         []table.Index
-	meta            *model.TableInfo
-	alloc           autoid.Allocator
+	physicalTableID   int64
+	Columns           []*table.Column
+	publicColumns     []*table.Column
+	writableColumns   []*table.Column
+	writableIndices   []table.Index
+	searchableIndices []table.Index
+	indices           []table.Index
+	meta              *model.TableInfo
+	alloc             autoid.Allocator
 
 	// recordPrefix and indexPrefix are generated using physicalTableID.
 	recordPrefix kv.Key
@@ -183,12 +184,29 @@ func (t *tableCommon) WritableIndices() []table.Index {
 	}
 	writable := make([]table.Index, 0, len(t.indices))
 	for _, index := range t.indices {
-		s := index.Meta().State
-		if s != model.StateDeleteOnly && s != model.StateDeleteReorganization {
+		m := index.Meta()
+		s := m.State
+		if s != model.StateDeleteOnly && s != model.StateDeleteReorganization && !m.Fulltext {
 			writable = append(writable, index)
 		}
 	}
 	return writable
+}
+
+// SearchableIndices implements table.Table SearchableIndices interface.
+func (t *tableCommon) SearchableIndices() []table.Index {
+	if len(t.searchableIndices) > 0 {
+		return t.searchableIndices
+	}
+	searchable := make([]table.Index, 0, len(t.indices))
+	for _, index := range t.indices {
+		m := index.Meta()
+		s := m.State
+		if s != model.StateDeleteOnly && s != model.StateDeleteReorganization && m.Fulltext {
+			searchable = append(searchable, index)
+		}
+	}
+	return searchable
 }
 
 // DeletableIndices implements table.Table DeletableIndices interface.
@@ -400,6 +418,31 @@ func (t *tableCommon) rebuildIndices(ctx sessionctx.Context, rm kv.RetrieverMuta
 			return err
 		}
 	}
+	mutation := t.getFulltextIndexMutation(ctx)
+	for _, idx := range t.SearchableIndices() {
+		untouched := true
+		for _, ic := range idx.Meta().Columns {
+			if !touched[ic.Offset] {
+				continue
+			}
+			untouched = false
+			break
+		}
+		// If txn is auto commit and index is untouched, no need to write index value.
+		if untouched && !ctx.GetSessionVars().InTxn() {
+			continue
+		}
+		newVs, err := idx.FetchValues(newData, nil)
+		if err != nil {
+			return err
+		}
+		m := idx.Meta()
+		for i, datum := range newVs {
+			if datum.Kind() == types.KindString {
+				mutation.Put(h, m.Columns[i].Name.L, datum.GetString())
+			}
+		}
+	}
 	return nil
 }
 
@@ -514,6 +557,7 @@ func (t *tableCommon) AddRecord(ctx sessionctx.Context, r []types.Datum, opts ..
 			row = append(row, value)
 		}
 	}
+
 	writeBufs := sessVars.GetWriteStmtBufs()
 	adjustRowValuesBuf(writeBufs, len(row))
 	key := t.RecordKey(recordID)
@@ -623,6 +667,19 @@ func (t *tableCommon) addIndices(sctx sessionctx.Context, recordID int64, r []ty
 			return 0, err
 		}
 		txn.DelOption(kv.PresumeKeyNotExistsError)
+	}
+	mutation := t.getFulltextIndexMutation(sctx)
+	for _, v := range t.SearchableIndices() {
+		indexVals, err = v.FetchValues(r, indexVals)
+		if err != nil {
+			return 0, err
+		}
+		m := v.Meta()
+		for i, datum := range indexVals {
+			if datum.Kind() == types.KindString {
+				mutation.Put(recordID, m.Columns[i].Name.L, datum.GetString())
+			}
+		}
 	}
 	// save the buffer, multi rows insert can use it.
 	writeBufs.IndexValsBuf = indexVals
@@ -819,6 +876,10 @@ func (t *tableCommon) removeRowIndices(ctx sessionctx.Context, h int64, rec []ty
 			}
 			return err
 		}
+	}
+	mutation := t.getFulltextIndexMutation(ctx)
+	if len(t.SearchableIndices()) > 0 {
+		mutation.Delete(h)
 	}
 	return nil
 }
@@ -1038,6 +1099,10 @@ func shouldWriteBinlog(ctx sessionctx.Context) bool {
 
 func (t *tableCommon) getMutation(ctx sessionctx.Context) *binlog.TableMutation {
 	return ctx.StmtGetMutation(t.tableID)
+}
+
+func (t *tableCommon) getFulltextIndexMutation(ctx sessionctx.Context) *sessionctx.FulltextIndexMutations {
+	return ctx.StmtGetFulltextIndexMutation(t.tableID, "", t.Meta().Name.L)
 }
 
 func (t *tableCommon) canSkip(col *table.Column, value types.Datum) bool {

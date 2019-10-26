@@ -14,6 +14,7 @@
 package meta
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -32,6 +33,8 @@ import (
 	"github.com/pingcap/tidb/metrics"
 	"github.com/pingcap/tidb/structure"
 	"github.com/pingcap/tidb/util/logutil"
+	search_model "github.com/redis-force/tisearch/model"
+	"github.com/redis-force/tisearch/storage"
 	"go.uber.org/zap"
 )
 
@@ -259,8 +262,11 @@ func (m *Meta) UpdateDatabase(dbInfo *model.DBInfo) error {
 }
 
 func (m *Meta) createFulltextIndex(tableInfo *model.TableInfo, index *model.IndexInfo) error {
-	// TODO add code to create schema mapping on ES
-	return nil
+	fields := make([]search_model.Field, len(index.Columns))
+	for i, column := range index.Columns {
+		fields[i] = search_model.Field{Name: column.Name.L}
+	}
+	return storage.Create(context.Background(), "", tableInfo.Name.L, fields)
 }
 
 // CreateTableOrView creates a table with tableInfo in database.

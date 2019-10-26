@@ -79,6 +79,8 @@ type Context interface {
 	StmtRollback()
 	// StmtGetMutation gets the binlog mutation for current statement.
 	StmtGetMutation(int64) *binlog.TableMutation
+	// StmtGetFulltextIndexMutation gets the fulltext index mutation for current statement.
+	StmtGetFulltextIndexMutation(int64, string, string) *FulltextIndexMutations
 	// StmtAddDirtyTableOP adds the dirty table operation for current statement.
 	StmtAddDirtyTableOP(op int, physicalID int64, handle int64)
 	// DDLOwnerChecker returns owner.DDLOwnerChecker.
@@ -133,4 +135,37 @@ var ConnID = connIDCtxKeyType{}
 // SetCommitCtx sets the variables for context before commit a transaction.
 func SetCommitCtx(ctx context.Context, sessCtx Context) context.Context {
 	return context.WithValue(ctx, ConnID, sessCtx.GetSessionVars().ConnectionID)
+}
+
+type FulltextIndexMutation struct {
+	DocId  int64
+	Name   string
+	Value  string
+	Delete bool
+}
+
+type FulltextIndexMutations struct {
+	Database  string
+	Table     string
+	mutations []FulltextIndexMutation
+}
+
+func (m *FulltextIndexMutations) Put(docId int64, name, value string) {
+	m.mutations = append(m.mutations, FulltextIndexMutation{
+		DocId:  docId,
+		Name:   name,
+		Value:  value,
+		Delete: false,
+	})
+}
+
+func (m *FulltextIndexMutations) Delete(docId int64) {
+	m.mutations = append(m.mutations, FulltextIndexMutation{
+		DocId:  docId,
+		Delete: true,
+	})
+}
+
+func (m *FulltextIndexMutations) Get() []FulltextIndexMutation {
+	return m.mutations
 }

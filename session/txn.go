@@ -32,6 +32,8 @@ import (
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/logutil"
 	"github.com/pingcap/tipb/go-binlog"
+	"github.com/redis-force/tisearch/model"
+	"github.com/redis-force/tisearch/storage"
 	"go.uber.org/zap"
 )
 
@@ -47,9 +49,10 @@ type TxnState struct {
 	kv.Transaction
 	txnFuture *txnFuture
 
-	buf          kv.MemBuffer
-	mutations    map[int64]*binlog.TableMutation
-	dirtyTableOP []dirtyTableOperation
+	buf               kv.MemBuffer
+	mutations         map[int64]*binlog.TableMutation
+	fulltextMutations map[int64]*sessionctx.FulltextIndexMutations
+	dirtyTableOP      []dirtyTableOperation
 
 	// If doNotCommit is not nil, Commit() will not commit the transaction.
 	// doNotCommit flag may be set when StmtCommit fail.
@@ -192,7 +195,42 @@ func (st *TxnState) Commit(ctx context.Context) error {
 		}
 	})
 
+	// Write fulltext index mutations
+	if err1 := st.writeFulltextIndex(ctx); err1 != nil {
+		logutil.BgLogger().Error("write fulltext index failed",
+			zap.String("TxnState", st.GoString()),
+			zap.Stack("something must be wrong"), zap.Error(err1))
+		return errors.New("failed to write fulltext index")
+	}
+
 	return st.Transaction.Commit(ctx)
+}
+
+func (st *TxnState) writeFulltextIndex(ctx context.Context) error {
+	for _, mutations := range st.fulltextMutations {
+		db := mutations.Database
+		tb := mutations.Table
+		fields := make(map[int64][]model.Field)
+		for _, m := range mutations.Get() {
+			if m.Delete {
+				if e := storage.Delete(ctx, db, tb, m.DocId); e != nil {
+					return e
+				}
+			} else {
+				if _, ok := fields[m.DocId]; !ok {
+					fields[m.DocId] = []model.Field{model.Field{Name: m.Name, Value: m.Value}}
+				} else {
+					fields[m.DocId] = append(fields[m.DocId], model.Field{Name: m.Name, Value: m.Value})
+				}
+			}
+		}
+		for docId, field := range fields {
+			if e := storage.Put(ctx, db, tb, docId, field); e != nil {
+				return e
+			}
+		}
+	}
+	return nil
 }
 
 // Rollback overrides the Transaction interface.
@@ -476,6 +514,15 @@ func (s *session) StmtGetMutation(tableID int64) *binlog.TableMutation {
 		st.mutations[tableID] = &binlog.TableMutation{TableId: tableID}
 	}
 	return st.mutations[tableID]
+}
+
+// StmtGetFulltextIndexMutation implements the sessionctx.Context interface.
+func (s *session) StmtGetFulltextIndexMutation(tableID int64, databaseName, tableName string) *sessionctx.FulltextIndexMutations {
+	st := &s.txn
+	if _, ok := st.fulltextMutations[tableID]; !ok {
+		st.fulltextMutations[tableID] = &sessionctx.FulltextIndexMutations{Database: databaseName, Table: tableName}
+	}
+	return st.fulltextMutations[tableID]
 }
 
 func (s *session) StmtAddDirtyTableOP(op int, tid int64, handle int64) {

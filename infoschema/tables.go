@@ -2044,6 +2044,11 @@ func (it *infoschemaTable) WritableIndices() []table.Index {
 	return nil
 }
 
+// SearchableIndices implements table.Table SearchableIndices interface.
+func (it *infoschemaTable) SearchableIndices() []table.Index {
+	return nil
+}
+
 // DeletableIndices implements table.Table DeletableIndices interface.
 func (it *infoschemaTable) DeletableIndices() []table.Index {
 	return nil
@@ -2158,6 +2163,11 @@ func (vt *VirtualTable) Indices() []table.Index {
 
 // WritableIndices implements table.Table WritableIndices interface.
 func (vt *VirtualTable) WritableIndices() []table.Index {
+	return nil
+}
+
+// SearchableIndices implements table.Table SearchableIndices interface.
+func (vt *VirtualTable) SearchableIndices() []table.Index {
 	return nil
 }
 

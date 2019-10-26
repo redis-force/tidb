@@ -209,6 +209,11 @@ func (c *Context) StmtGetMutation(tableID int64) *binlog.TableMutation {
 	return nil
 }
 
+// StmtGetFulltextIndexMutation gets the fulltext index mutation for current statement.
+func (c *Context) StmtGetFulltextIndexMutation(int64, string, string) *sessionctx.FulltextIndexMutations {
+	return nil
+}
+
 // StmtAddDirtyTableOP implements the sessionctx.Context interface.
 func (c *Context) StmtAddDirtyTableOP(op int, tid int64, handle int64) {
 }

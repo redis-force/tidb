@@ -141,6 +141,9 @@ type Table interface {
 	// WritableIndices returns write-only and public indices of the table.
 	WritableIndices() []Index
 
+	// SearchableIndices returns search-only and public indices of the table.
+	SearchableIndices() []Index
+
 	// DeletableIndices returns delete-only, write-only and public indices of the table.
 	DeletableIndices() []Index
 
