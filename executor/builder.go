@@ -208,6 +208,8 @@ func (b *executorBuilder) build(p plannercore.Plan) Executor {
 		return b.buildSQLBindExec(v)
 	case *plannercore.SplitRegion:
 		return b.buildSplitRegion(v)
+	case *plannercore.PhysicalSearchPlan:
+		return b.buildSearchExecutor(v)
 	default:
 		if mp, ok := p.(MockPhysicalPlan); ok {
 			return mp.GetExecutor()
@@ -332,7 +334,7 @@ func (b *executorBuilder) buildCheckIndex(v *plannercore.CheckIndex) Executor {
 // buildIndexLookUpChecker builds check information to IndexLookUpReader.
 func buildIndexLookUpChecker(b *executorBuilder, readerPlan *plannercore.PhysicalIndexLookUpReader,
 	readerExec *IndexLookUpExecutor) {
-	is := readerPlan.IndexPlans[0].(*plannercore.PhysicalIndexScan)
+	is := b.makeIndexScanAdapter(readerPlan.IndexPlans[0])
 	readerExec.dagPB.OutputOffsets = make([]uint32, 0, len(is.Index.Columns))
 	for i := 0; i <= len(is.Index.Columns); i++ {
 		readerExec.dagPB.OutputOffsets = append(readerExec.dagPB.OutputOffsets, uint32(i))
@@ -1656,6 +1658,11 @@ func constructDistExec(sctx sessionctx.Context, plans []plannercore.PhysicalPlan
 }
 
 func (b *executorBuilder) constructDAGReq(plans []plannercore.PhysicalPlan) (dagReq *tipb.DAGRequest, streaming bool, err error) {
+	if len(plans) == 1 {
+		if _, ok := plans[0].(*plannercore.PhysicalSearchPlan); ok {
+			return &tipb.DAGRequest{}, false, nil
+		}
+	}
 	dagReq = &tipb.DAGRequest{}
 	dagReq.StartTs, err = b.getStartTS()
 	if err != nil {
@@ -1693,6 +1700,7 @@ func (b *executorBuilder) corColInAccess(p plannercore.PhysicalPlan) bool {
 		access = x.AccessCondition
 	case *plannercore.PhysicalIndexScan:
 		access = x.AccessCondition
+		// FIXME(tisearch): ??
 	}
 	for _, cond := range access {
 		if len(expression.ExtractCorColumns(cond)) > 0 {
@@ -1944,12 +1952,12 @@ func buildNoRangeIndexReader(b *executorBuilder, v *plannercore.PhysicalIndexRea
 	if err != nil {
 		return nil, err
 	}
-	is := v.IndexPlans[0].(*plannercore.PhysicalIndexScan)
+	is := b.makeIndexScanAdapter(v.IndexPlans[0])
 	tbl, _ := b.is.TableByID(is.Table.ID)
-	isPartition, physicalTableID := is.IsPartition()
+	isPartition, physicalTableID := is.IsPartition, is.PhysicalTableID
 	if isPartition {
 		pt := tbl.(table.PartitionedTable)
-		tbl = pt.GetPartition(physicalTableID)
+		tbl = pt.GetPartition(is.PhysicalTableID)
 	} else {
 		physicalTableID = is.Table.ID
 	}
@@ -1969,11 +1977,12 @@ func buildNoRangeIndexReader(b *executorBuilder, v *plannercore.PhysicalIndexRea
 		colLens:         is.IdxColLens,
 		plans:           v.IndexPlans,
 		outputColumns:   v.OutputColumns,
+		searcher:        is.searcher,
 	}
 	if containsLimit(dagReq.Executors) {
 		e.feedback = statistics.NewQueryFeedback(0, nil, 0, is.Desc)
 	} else {
-		e.feedback = statistics.NewQueryFeedback(e.physicalTableID, is.Hist, int64(is.StatsCount()), is.Desc)
+		e.feedback = statistics.NewQueryFeedback(e.physicalTableID, is.Hist, is.StatsCount, is.Desc)
 	}
 	collect := (b.ctx.GetSessionVars().StmtCtx.RuntimeStatsColl != nil) || e.feedback.CollectFeedback(len(is.Ranges))
 	if !collect {
@@ -1995,7 +2004,7 @@ func (b *executorBuilder) buildIndexReader(v *plannercore.PhysicalIndexReader) *
 		return nil
 	}
 
-	is := v.IndexPlans[0].(*plannercore.PhysicalIndexScan)
+	is := b.makeIndexScanAdapter(v.IndexPlans[0])
 	ret.ranges = is.Ranges
 	sctx := b.ctx.GetSessionVars().StmtCtx
 	sctx.IndexNames = append(sctx.IndexNames, is.Table.Name.O+":"+is.Index.Name.O)
@@ -2011,7 +2020,7 @@ func buildNoRangeIndexLookUpReader(b *executorBuilder, v *plannercore.PhysicalIn
 	if err != nil {
 		return nil, err
 	}
-	is := v.IndexPlans[0].(*plannercore.PhysicalIndexScan)
+	is := b.makeIndexScanAdapter(v.IndexPlans[0])
 	indexReq.OutputOffsets = []uint32{uint32(len(is.Index.Columns))}
 	tbl, _ := b.is.TableByID(is.Table.ID)
 
@@ -2044,12 +2053,13 @@ func buildNoRangeIndexLookUpReader(b *executorBuilder, v *plannercore.PhysicalIn
 		idxPlans:          v.IndexPlans,
 		tblPlans:          v.TablePlans,
 		PushedLimit:       v.PushedLimit,
+		searcher:          is.searcher,
 	}
 
 	if containsLimit(indexReq.Executors) {
 		e.feedback = statistics.NewQueryFeedback(0, nil, 0, is.Desc)
 	} else {
-		e.feedback = statistics.NewQueryFeedback(getPhysicalTableID(tbl), is.Hist, int64(is.StatsCount()), is.Desc)
+		e.feedback = statistics.NewQueryFeedback(getPhysicalTableID(tbl), is.Hist, is.StatsCount, is.Desc)
 	}
 	// do not collect the feedback for table request.
 	collectTable := false
@@ -2072,7 +2082,7 @@ func (b *executorBuilder) buildIndexLookUpReader(v *plannercore.PhysicalIndexLoo
 		return nil
 	}
 
-	is := v.IndexPlans[0].(*plannercore.PhysicalIndexScan)
+	is := b.makeIndexScanAdapter(v.IndexPlans[0])
 	ts := v.TablePlans[0].(*plannercore.PhysicalTableScan)
 
 	ret.ranges = is.Ranges
@@ -2402,4 +2412,64 @@ func getPhysicalTableID(t table.Table) int64 {
 		return p.GetPhysicalID()
 	}
 	return t.Meta().ID
+}
+
+func (b *executorBuilder) buildSearchExecutor(v *plannercore.PhysicalSearchPlan) *SearchExecutor {
+	return &SearchExecutor{
+		DBName: v.DBName,
+		Table:  v.Table,
+		Index:  v.Index,
+		Query:  v.SearchQuery,
+		Mode:   v.SearchMode,
+	}
+}
+
+type isAdapter struct {
+	Table           *model.TableInfo
+	Index           *model.IndexInfo
+	KeepOrder       bool
+	Desc            bool
+	Columns         []*model.ColumnInfo
+	IdxCols         []*expression.Column
+	IdxColLens      []int
+	StatsCount      int64
+	GenExprs        map[model.TableColumnID]expression.Expression
+	IsPartition     bool
+	PhysicalTableID int64
+	Hist            *statistics.Histogram
+	Ranges          []*ranger.Range
+
+	searcher Executor
+}
+
+func (b *executorBuilder) makeIndexScanAdapter(plan plannercore.PhysicalPlan) isAdapter {
+	if is, ok := plan.(*plannercore.PhysicalIndexScan); ok {
+		isPartition, physicalTableID := is.IsPartition()
+		return isAdapter{
+			Table:           is.Table,
+			Index:           is.Index,
+			KeepOrder:       is.KeepOrder,
+			Desc:            is.Desc,
+			Columns:         is.Columns,
+			IdxCols:         is.IdxCols,
+			IdxColLens:      is.IdxColLens,
+			StatsCount:      int64(is.StatsCount()),
+			IsPartition:     isPartition,
+			PhysicalTableID: physicalTableID,
+			Hist:            is.Hist,
+			Ranges:          is.Ranges,
+		}
+	}
+	if is, ok := plan.(*plannercore.PhysicalSearchPlan); ok {
+		return isAdapter{
+			Table:      is.Table,
+			Index:      is.Index,
+			Columns:    is.Columns,
+			IdxCols:    is.IdxCols,
+			IdxColLens: is.IdxColLens,
+			searcher:   b.build(plan),
+		}
+	}
+
+	return isAdapter{}
 }

@@ -2289,6 +2289,29 @@ func (ds *DataSource) newExtraHandleSchemaCol() *expression.Column {
 	}
 }
 
+var searchColName = model.NewCIStr("_search_ext")
+
+func (ds *DataSource) newSearchHandleSchemaCol() *expression.Column {
+	return &expression.Column{
+		DBName:   ds.DBName,
+		TblName:  ds.tableInfo.Name,
+		ColName:  searchColName,
+		RetType:  types.NewFieldType(mysql.TypeVarchar),
+		UniqueID: ds.ctx.GetSessionVars().AllocPlanColumnID(),
+		ID:       -2,
+	}
+}
+
+func (ds *DataSource) newSearchColumnInfo() *model.ColumnInfo {
+	colInfo := &model.ColumnInfo{
+		ID:   -2,
+		Name: searchColName,
+	}
+	colInfo.Tp = mysql.TypeVarchar
+	colInfo.Flen, colInfo.Decimal = mysql.GetDefaultFieldLengthAndDecimal(mysql.TypeVarchar)
+	return colInfo
+}
+
 // getStatsTable gets statistics information for a table specified by "tableID".
 // A pseudo statistics table is returned in any of the following scenario:
 // 1. tidb-server started and statistics handle has not been initialized.
@@ -2322,6 +2345,24 @@ func getStatsTable(ctx sessionctx.Context, tblInfo *model.TableInfo, pid int64) 
 		metrics.PseudoEstimation.Inc()
 	}
 	return statsTbl
+}
+
+func (b *PlanBuilder) hasSearchHint() bool {
+	for _, h := range b.tableHintInfo {
+		if h.ifUseSearch() {
+			return true
+		}
+	}
+	return false
+}
+
+func (b *PlanBuilder) getSearchHint() (string, int) {
+	for _, h := range b.tableHintInfo {
+		if h.ifUseSearch() {
+			return h.searchHint.query.O, int(h.searchHint.mode)
+		}
+	}
+	return "", 0
 }
 
 func (b *PlanBuilder) buildDataSource(ctx context.Context, tn *ast.TableName, asName *model.CIStr) (LogicalPlan, error) {
@@ -2437,6 +2478,15 @@ func (b *PlanBuilder) buildDataSource(ctx context.Context, tn *ast.TableName, as
 	} else {
 		b.handleHelper.pushMap(nil)
 	}
+
+	// Add search ext column.
+	if b.hasSearchHint() {
+		ds.Columns = append(ds.Columns, ds.newSearchColumnInfo())
+		searchExtCol := ds.newSearchHandleSchemaCol()
+		schema.Append(searchExtCol)
+		ds.TblCols = append(ds.TblCols, searchExtCol)
+	}
+
 	ds.SetSchema(schema)
 	ds.setPreferredStoreType(b.TableHints())
 

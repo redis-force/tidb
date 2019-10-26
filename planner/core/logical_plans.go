@@ -417,6 +417,10 @@ type accessPath struct {
 	// partialIndexPaths store all index access paths.
 	// If there are extra filters, store them in tableFilters.
 	partialIndexPaths []*accessPath
+	// isFulltext means the path is to query ES.
+	isFulltext  bool
+	searchQuery string
+	searchMode  int
 }
 
 // getTablePath finds the TablePath from a group of accessPaths.

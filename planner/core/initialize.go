@@ -267,6 +267,11 @@ func (p PhysicalIndexScan) Init(ctx sessionctx.Context, offset int) *PhysicalInd
 	return &p
 }
 
+func (p PhysicalSearchPlan) Init(ctx sessionctx.Context, offset int) *PhysicalSearchPlan {
+	p.basePhysicalPlan = newBasePhysicalPlan(ctx, plancodec.TypeSearch, &p, offset)
+	return &p
+}
+
 // Init initializes PhysicalMemTable.
 func (p PhysicalMemTable) Init(ctx sessionctx.Context, stats *property.StatsInfo, offset int) *PhysicalMemTable {
 	p.basePhysicalPlan = newBasePhysicalPlan(ctx, plancodec.TypeMemTableScan, &p, offset)
@@ -389,7 +394,7 @@ func (p PhysicalIndexReader) Init(ctx sessionctx.Context, offset int) *PhysicalI
 	p.basePhysicalPlan = newBasePhysicalPlan(ctx, plancodec.TypeIndexReader, &p, offset)
 	p.IndexPlans = flattenPushDownPlan(p.indexPlan)
 	switch p.indexPlan.(type) {
-	case *PhysicalHashAgg, *PhysicalStreamAgg:
+	case *PhysicalHashAgg, *PhysicalStreamAgg, *PhysicalSearchPlan:
 		p.schema = p.indexPlan.Schema()
 	default:
 		is := p.IndexPlans[0].(*PhysicalIndexScan)

@@ -331,6 +331,7 @@ func (ds *DataSource) getIndexMergeCandidate(path *accessPath) *candidatePath {
 // there exists a path that is not worse than it at all factors and there is at least one better factor.
 func (ds *DataSource) skylinePruning(prop *property.PhysicalProperty) []*candidatePath {
 	candidates := make([]*candidatePath, 0, 4)
+	var fulltext *candidatePath
 	for _, path := range ds.possibleAccessPaths {
 		if path.partialIndexPaths != nil {
 			candidates = append(candidates, ds.getIndexMergeCandidate(path))
@@ -339,6 +340,10 @@ func (ds *DataSource) skylinePruning(prop *property.PhysicalProperty) []*candida
 		// if we already know the range of the scan is empty, just return a TableDual
 		if len(path.ranges) == 0 && !ds.ctx.GetSessionVars().StmtCtx.UseCache {
 			return []*candidatePath{{path: path}}
+		}
+		if path.isFulltext {
+			fulltext = ds.getIndexCandidate(path, prop)
+			continue
 		}
 		var currentCandidate *candidatePath
 		if path.isTablePath {
@@ -367,6 +372,9 @@ func (ds *DataSource) skylinePruning(prop *property.PhysicalProperty) []*candida
 		if !pruned {
 			candidates = append(candidates, currentCandidate)
 		}
+	}
+	if fulltext != nil {
+		candidates = append(candidates, fulltext)
 	}
 	return candidates
 }
@@ -453,6 +461,9 @@ func (ds *DataSource) findBestTask(prop *property.PhysicalProperty) (t task, err
 				t = tblTask
 			}
 			continue
+		}
+		if path.isFulltext {
+			return ds.convertToSearchTask(prop, candidate)
 		}
 		// TiFlash storage do not support index scan.
 		if ds.preferStoreType&preferTiFlash != 0 {
@@ -998,6 +1009,47 @@ func (ds *DataSource) convertToTableScan(prop *property.PhysicalProperty, candid
 	return task, nil
 }
 
+func (ds *DataSource) convertToSearchTask(prop *property.PhysicalProperty, candidate *candidatePath) (task task, err error) {
+	// FIXME(tisearch): check prop?
+	path := candidate.path
+	is := ds.getPhysicalSearchPlan(prop, path, candidate.isSingleScan)
+	cop := &copTask{
+		indexPlan:   is,
+		tblColHists: ds.TblColHists,
+		tblCols:     ds.TblCols,
+	}
+	if !candidate.isSingleScan {
+		ts := PhysicalTableScan{
+			Columns:         ds.Columns,
+			Table:           is.Table,
+			TableAsName:     ds.TableAsName,
+			isPartition:     ds.isPartition,
+			physicalTableID: ds.physicalTableID,
+		}.Init(ds.ctx, is.blockOffset)
+		ts.SetSchema(ds.schema.Clone())
+		cop.tablePlan = ts
+	}
+	task = cop
+	if candidate.isMatchProp {
+		if cop.tablePlan != nil {
+			col, isNew := cop.tablePlan.(*PhysicalTableScan).appendExtraHandleCol(ds)
+			cop.extraHandleCol = col
+			cop.doubleReadNeedProj = isNew
+		}
+		cop.keepOrder = true
+	}
+	// prop.IsEmpty() would always return true when coming to here,
+	// so we can just use prop.ExpectedCnt as parameter of addPushedDownSelection.
+	finalStats := ds.stats.ScaleByExpectCnt(prop.ExpectedCnt)
+	is.addPushedDownSelection(cop, ds, path, finalStats)
+	if prop.TaskTp == property.RootTaskType {
+		task = finishCopTask(ds.ctx, task)
+	} else if _, ok := task.(*rootTask); ok {
+		return invalidTask, nil
+	}
+	return task, nil
+}
+
 func (ts *PhysicalTableScan) addPushedDownSelection(copTask *copTask, stats *property.StatsInfo) {
 	// Add filter condition to table plan now.
 	sessVars := ts.ctx.GetSessionVars()
@@ -1115,4 +1167,53 @@ func (ds *DataSource) getOriginalPhysicalIndexScan(prop *property.PhysicalProper
 		is.KeepOrder = true
 	}
 	return is, cost, rowCount
+}
+
+func (ds *DataSource) getPhysicalSearchPlan(prop *property.PhysicalProperty, path *accessPath, isSingleScan bool) *PhysicalSearchPlan {
+	is := PhysicalSearchPlan{
+		Table:       ds.tableInfo,
+		Index:       path.index,
+		DBName:      ds.DBName,
+		IdxCols:     path.idxCols,
+		IdxColLens:  path.idxColLens,
+		SearchQuery: path.searchQuery,
+		SearchMode:  path.searchMode,
+	}.Init(ds.ctx, ds.blockOffset)
+	is.initSchema(ds.id, path.index, path.fullIdxCols, !isSingleScan)
+	is.stats = ds.tableStats.ScaleByExpectCnt(5)
+	return is
+}
+
+func (is *PhysicalSearchPlan) initSchema(id int, idx *model.IndexInfo, idxExprCols []*expression.Column, isDoubleRead bool) {
+	indexCols := make([]*expression.Column, len(is.IdxCols), len(idx.Columns)+1)
+	copy(indexCols, is.IdxCols)
+	for i := len(is.IdxCols); i < len(idx.Columns); i++ {
+		if idxExprCols[i] != nil {
+			indexCols = append(indexCols, idxExprCols[i])
+		} else {
+			// TODO: try to reuse the col generated when building the DataSource.
+			indexCols = append(indexCols, &expression.Column{
+				ColName:  idx.Columns[i].Name,
+				RetType:  &is.Table.Columns[idx.Columns[i].Offset].FieldType,
+				UniqueID: is.ctx.GetSessionVars().AllocPlanColumnID(),
+			})
+		}
+	}
+
+	setHandle := len(indexCols) > len(idx.Columns)
+	if !setHandle {
+		for i, col := range is.Columns {
+			if (mysql.HasPriKeyFlag(col.Flag) && is.Table.PKIsHandle) || col.ID == model.ExtraHandleID {
+				indexCols = append(indexCols, is.dataSourceSchema.Columns[i])
+				setHandle = true
+				break
+			}
+		}
+	}
+	// If it's double read case, the first index must return handle. So we should add extra handle column
+	// if there isn't a handle column.
+	if isDoubleRead && !setHandle {
+		indexCols = append(indexCols, &expression.Column{ID: model.ExtraHandleID, ColName: model.ExtraHandleName, UniqueID: is.ctx.GetSessionVars().AllocPlanColumnID()})
+	}
+	is.SetSchema(expression.NewSchema(indexCols...))
 }

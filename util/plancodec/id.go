@@ -94,6 +94,7 @@ const (
 	TypeShowDDLJobs = "ShowDDLJobs"
 	// TypeBatchPointGet is the type of BatchPointGetPlan.
 	TypeBatchPointGet = "Batch_Point_Get"
+	TypeSearch        = "Search"
 )
 
 // plan id.

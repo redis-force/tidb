@@ -529,3 +529,31 @@ func BuildMergeJoinPlan(ctx sessionctx.Context, joinType JoinType, leftKeys, rig
 	}
 	return PhysicalMergeJoin{basePhysicalJoin: baseJoin}.Init(ctx, nil, 0)
 }
+
+type PhysicalSearchPlan struct {
+	physicalSchemaProducer
+
+	DBName           model.CIStr
+	Table            *model.TableInfo
+	Index            *model.IndexInfo
+	IdxCols          []*expression.Column
+	IdxColLens       []int
+	Columns          []*model.ColumnInfo
+	dataSourceSchema *expression.Schema
+
+	SearchQuery string
+	SearchMode  int
+}
+
+func (is *PhysicalSearchPlan) addPushedDownSelection(copTask *copTask, p *DataSource, path *accessPath, finalStats *property.StatsInfo) {
+	// Add filter condition to table plan now.
+	tableConds := path.tableFilters
+	sessVars := is.ctx.GetSessionVars()
+	if tableConds != nil {
+		copTask.finishIndexPlan()
+		copTask.cst += copTask.count() * sessVars.CopCPUFactor
+		tableSel := PhysicalSelection{Conditions: tableConds}.Init(is.ctx, finalStats, is.blockOffset)
+		tableSel.SetChildren(copTask.tablePlan)
+		copTask.tablePlan = tableSel
+	}
+}

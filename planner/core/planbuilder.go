@@ -120,6 +120,10 @@ func (info *tableHintInfo) ifPreferTiFlash(tableNames ...*hintTableInfo) bool {
 	return info.matchTableName(tableNames, info.flashTables)
 }
 
+func (info *tableHintInfo) ifUseSearch() bool {
+	return info.searchHint.query.O != ""
+}
+
 // matchTableName checks whether the hint hit the need.
 // Only need either side matches one on the list.
 // Even though you can put 2 tables on the list,
@@ -590,7 +594,12 @@ func (b *PlanBuilder) getPossibleAccessPaths(indexHints []*ast.IndexHint, tblInf
 	publicPaths = append(publicPaths, &accessPath{isTablePath: true})
 	for _, index := range tblInfo.Indices {
 		if index.State == model.StatePublic {
-			publicPaths = append(publicPaths, &accessPath{index: index})
+			path := &accessPath{index: index}
+			if b.hasSearchHint() && index.Fulltext {
+				path.isFulltext = true
+				path.searchQuery, path.searchMode = b.getSearchHint()
+			}
+			publicPaths = append(publicPaths, path)
 		}
 	}
 

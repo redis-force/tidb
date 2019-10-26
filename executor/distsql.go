@@ -232,10 +232,16 @@ type IndexReaderExecutor struct {
 	memTracker *memory.Tracker
 
 	selectResultHook // for testing
+
+	searcher Executor
 }
 
 // Close clears all resources hold by current object.
 func (e *IndexReaderExecutor) Close() error {
+	if e.searcher != nil {
+		return e.searcher.Close()
+	}
+
 	err := e.result.Close()
 	e.result = nil
 	if e.runtimeStats != nil {
@@ -248,6 +254,9 @@ func (e *IndexReaderExecutor) Close() error {
 
 // Next implements the Executor Next interface.
 func (e *IndexReaderExecutor) Next(ctx context.Context, req *chunk.Chunk) error {
+	if e.searcher != nil {
+		return e.searcher.Next(ctx, req)
+	}
 	err := e.result.Next(ctx, req)
 	if err != nil {
 		e.feedback.Invalidate()
@@ -257,6 +266,10 @@ func (e *IndexReaderExecutor) Next(ctx context.Context, req *chunk.Chunk) error 
 
 // Open implements the Executor Open interface.
 func (e *IndexReaderExecutor) Open(ctx context.Context) error {
+	if e.searcher != nil {
+		return e.searcher.Open(ctx)
+	}
+
 	var err error
 	if e.corColInAccess {
 		e.ranges, err = rebuildIndexRanges(e.ctx, e.plans[0].(*plannercore.PhysicalIndexScan), e.idxCols, e.colLens)
@@ -357,6 +370,8 @@ type IndexLookUpExecutor struct {
 	colLens         []int
 	// PushedLimit is used to skip the preceding and tailing handles when Limit is sunk into IndexLookUpReader.
 	PushedLimit *plannercore.PushedDownLimit
+
+	searcher Executor
 }
 
 type checkIndexValue struct {
