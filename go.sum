@@ -190,6 +190,8 @@ github.com/prometheus/procfs v0.0.0-20181005140218-185b4288413d h1:GoAlyOgbOEIFd
 github.com/prometheus/procfs v0.0.0-20181005140218-185b4288413d/go.mod h1:c3At6R/oaqEKCNdg8wHV1ftS6bRYblBhIjjI8uT2IGk=
 github.com/redis-force/parser v0.0.0-20191026032537-d8fd1f5e9ff8 h1:0U5gnxPeEj6JOLm5G6/CpbkUlNj4Ny22BCHF2ifyAUw=
 github.com/redis-force/parser v0.0.0-20191026032537-d8fd1f5e9ff8/go.mod h1:FYeoeeD5jWbAfwKeK2m2mOQr0Q2FL2UFsPUTXu9QJNI=
+github.com/redis-force/parser v0.0.0-20191026055155-2ad1e3d7c5cf h1:rXUfzuQd4xLPsvYWSGcSWx3RmvTKXsKAr7wRz1b6RtY=
+github.com/redis-force/parser v0.0.0-20191026055155-2ad1e3d7c5cf/go.mod h1:FYeoeeD5jWbAfwKeK2m2mOQr0Q2FL2UFsPUTXu9QJNI=
 github.com/remyoudompheng/bigfft v0.0.0-20190512091148-babf20351dd7 h1:FUL3b97ZY2EPqg2NbXKuMHs5pXJB9hjj1fDHnF2vl28=
 github.com/remyoudompheng/bigfft v0.0.0-20190512091148-babf20351dd7/go.mod h1:qqbHyh8v60DhA7CoWK5oRCqLrMHRGoxYCSS9EjAz6Eo=
 github.com/sergi/go-diff v1.0.1-0.20180205163309-da645544ed44/go.mod h1:0CfEIISq7TuYL3j771MWULgwwjU+GofnZX9QAmXWZgo=

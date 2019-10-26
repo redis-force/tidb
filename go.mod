@@ -81,4 +81,4 @@ require (
 
 go 1.13
 
-replace github.com/pingcap/parser v0.0.0-20191025082927-f8adf1670b97 => github.com/redis-force/parser v0.0.0-20191026032537-d8fd1f5e9ff8
+replace github.com/pingcap/parser v0.0.0-20191025082927-f8adf1670b97 => github.com/redis-force/parser v0.0.0-20191026055155-2ad1e3d7c5cf
