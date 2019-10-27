@@ -732,9 +732,9 @@ func (e *Explain) explainPlanInRowFormat(p Plan, taskType, indent string, isLast
 		}
 		err = e.explainPlanInRowFormat(x.tablePlan, "cop["+storeType+"]", childIndent, true)
 	case *PhysicalIndexReader:
-		err = e.explainPlanInRowFormat(x.indexPlan, "cop[tikv]", childIndent, true)
+		err = e.explainPlanInRowFormat(x.indexPlan, "cop["+x.storeType()+"]", childIndent, true)
 	case *PhysicalIndexLookUpReader:
-		err = e.explainPlanInRowFormat(x.indexPlan, "cop[tikv]", childIndent, false)
+		err = e.explainPlanInRowFormat(x.indexPlan, "cop["+x.storeType()+"]", childIndent, false)
 		err = e.explainPlanInRowFormat(x.tablePlan, "cop[tikv]", childIndent, true)
 	case *PhysicalIndexMergeReader:
 		for i := 0; i < len(x.partialPlans); i++ {

@@ -94,6 +94,15 @@ type PhysicalIndexReader struct {
 	OutputColumns []*expression.Column
 }
 
+func (r *PhysicalIndexReader) storeType() string {
+	if r.indexPlan != nil {
+		if _, ok := r.indexPlan.(*PhysicalSearchPlan); ok {
+			return "es"
+		}
+	}
+	return "tikv"
+}
+
 // PushedDownLimit is the limit operator pushed down into PhysicalIndexLookUpReader.
 type PushedDownLimit struct {
 	Offset uint64
@@ -114,6 +123,15 @@ type PhysicalIndexLookUpReader struct {
 	ExtraHandleCol *expression.Column
 	// PushedLimit is used to avoid unnecessary table scan tasks of IndexLookUpReader.
 	PushedLimit *PushedDownLimit
+}
+
+func (r *PhysicalIndexLookUpReader) storeType() string {
+	if r.indexPlan != nil {
+		if _, ok := r.indexPlan.(*PhysicalSearchPlan); ok {
+			return "es"
+		}
+	}
+	return "tikv"
 }
 
 // PhysicalIndexMergeReader is the reader using multiple indexes in tidb.
