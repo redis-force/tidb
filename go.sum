@@ -45,6 +45,7 @@ github.com/dustin/go-humanize v1.0.0/go.mod h1:HtrtbFcZ19U5GC7JDqmcUSB87Iq5E25Kn
 github.com/eknkc/amber v0.0.0-20171010120322-cdade1c07385 h1:clC1lXBpe2kTj2VHdaIu9ajZQe4kcEY9j0NsnDDBZ3o=
 github.com/eknkc/amber v0.0.0-20171010120322-cdade1c07385/go.mod h1:0vRUJqYpeSZifjYj7uP3BG/gKcuzL9xWVV/Y+cK33KM=
 github.com/fatih/color v1.7.0/go.mod h1:Zm6kSWBoL9eyXnKyktHP6abPY2pDugNf5KwzbycvMj4=
+github.com/fortytw2/leaktest v1.2.0 h1:cj6GCiwJDH7l3tMHLjZDo0QqPtrXJiWSI9JgpeQKw+Q=
 github.com/fortytw2/leaktest v1.2.0/go.mod h1:jDsjWgpAGjm2CA7WthBh/CdZYEPF31XHquHwclZch5g=
 github.com/fsnotify/fsnotify v1.4.7 h1:IXs+QLmnXW2CcXuY+8Mzv/fWEsPGWxqefPtCP5CnV9I=
 github.com/fsnotify/fsnotify v1.4.7/go.mod h1:jwhsz4b93w/PPRr/qN1Yymfu8t87LnFCMoQvtojpjFo=
@@ -165,8 +166,6 @@ github.com/pingcap/kvproto v0.0.0-20190910074005-0e61b6f435c1/go.mod h1:QMdbTAXC
 github.com/pingcap/log v0.0.0-20190715063458-479153f07ebd/go.mod h1:WpHUKhNZ18v116SvGrmjkA9CBhYmuUTKL+p8JC9ANEw=
 github.com/pingcap/log v0.0.0-20191012051959-b742a5d432e9 h1:AJD9pZYm72vMgPcQDww9rkZ1DnWfl0pXV3BOWlkYIjA=
 github.com/pingcap/log v0.0.0-20191012051959-b742a5d432e9/go.mod h1:4rbK1p9ILyIfb6hU7OG2CiWSqMXnp3JMbiaVJ6mvoY8=
-github.com/pingcap/parser v0.0.0-20191025082927-f8adf1670b97 h1:5voUcK/4VS5ayuyIgEgxrhLH2XxG/ZOhC6AcMp9dV1o=
-github.com/pingcap/parser v0.0.0-20191025082927-f8adf1670b97/go.mod h1:1FNvfp9+J0wvc4kl8eGNh7Rqrxveg15jJoWo/a0uHwA=
 github.com/pingcap/pd v1.1.0-beta.0.20190923032047-5c648dc365e0 h1:GIEq+wZfrl2bcJxpuSrEH4H7/nlf5YdmpS+dU9lNIt8=
 github.com/pingcap/pd v1.1.0-beta.0.20190923032047-5c648dc365e0/go.mod h1:G/6rJpnYwM0LKMec2rI82/5Kg6GaZMvlfB+e6/tvYmI=
 github.com/pingcap/tidb-tools v2.1.3-0.20190321065848-1e8b48f5c168+incompatible h1:MkWCxgZpJBgY2f4HtwWMMFzSBb3+JPzeJgF3VrXE/bU=
@@ -191,18 +190,8 @@ github.com/prometheus/common v0.0.0-20181020173914-7e9e6cabbd39/go.mod h1:daVV7q
 github.com/prometheus/procfs v0.0.0-20180612222113-7d6f385de8be/go.mod h1:c3At6R/oaqEKCNdg8wHV1ftS6bRYblBhIjjI8uT2IGk=
 github.com/prometheus/procfs v0.0.0-20181005140218-185b4288413d h1:GoAlyOgbOEIFdaDqxJVlbOQ1DtGmZWs/Qau0hIlk+WQ=
 github.com/prometheus/procfs v0.0.0-20181005140218-185b4288413d/go.mod h1:c3At6R/oaqEKCNdg8wHV1ftS6bRYblBhIjjI8uT2IGk=
-github.com/redis-force/parser v0.0.0-20191026032537-d8fd1f5e9ff8 h1:0U5gnxPeEj6JOLm5G6/CpbkUlNj4Ny22BCHF2ifyAUw=
-github.com/redis-force/parser v0.0.0-20191026032537-d8fd1f5e9ff8/go.mod h1:FYeoeeD5jWbAfwKeK2m2mOQr0Q2FL2UFsPUTXu9QJNI=
 github.com/redis-force/parser v0.0.0-20191026055155-2ad1e3d7c5cf h1:rXUfzuQd4xLPsvYWSGcSWx3RmvTKXsKAr7wRz1b6RtY=
 github.com/redis-force/parser v0.0.0-20191026055155-2ad1e3d7c5cf/go.mod h1:FYeoeeD5jWbAfwKeK2m2mOQr0Q2FL2UFsPUTXu9QJNI=
-github.com/redis-force/tisearch v0.0.0-20191026073852-5d3166749e66 h1:n6POMg63Mqwbx6gdOI1N5mNJ2zbGOXzumkH/5VI+bQQ=
-github.com/redis-force/tisearch v0.0.0-20191026073852-5d3166749e66/go.mod h1:WP1pbrSr8CZ3O/h1D2yUCID0Wz9+EKDdQKt4H6V0p9o=
-github.com/redis-force/tisearch v0.0.0-20191026112349-3cf5ce52aa84 h1:CW13zTR9LZX/Cdnhu0P7QwMFgufwQ7Xdj73+kp3ZhBE=
-github.com/redis-force/tisearch v0.0.0-20191026112349-3cf5ce52aa84/go.mod h1:WP1pbrSr8CZ3O/h1D2yUCID0Wz9+EKDdQKt4H6V0p9o=
-github.com/redis-force/tisearch v0.0.0-20191026125318-1da028b45178 h1:hlhBKqJd110wusQ9PN8vGX8Gh/V/GTcItVmBHhGxEwk=
-github.com/redis-force/tisearch v0.0.0-20191026125318-1da028b45178/go.mod h1:WP1pbrSr8CZ3O/h1D2yUCID0Wz9+EKDdQKt4H6V0p9o=
-github.com/redis-force/tisearch v0.0.0-20191026164252-b9eda02593e6 h1:rDNq8DgCmPxP6M5NNBy1FfWSfEqKPo561ZI04qJ5jJs=
-github.com/redis-force/tisearch v0.0.0-20191026164252-b9eda02593e6/go.mod h1:WP1pbrSr8CZ3O/h1D2yUCID0Wz9+EKDdQKt4H6V0p9o=
 github.com/redis-force/tisearch v0.0.1 h1:5lApBdWbv8NfZpANAGzNinHGAg1uSJLufwpq4O1eEyQ=
 github.com/redis-force/tisearch v0.0.1/go.mod h1:WP1pbrSr8CZ3O/h1D2yUCID0Wz9+EKDdQKt4H6V0p9o=
 github.com/remyoudompheng/bigfft v0.0.0-20190512091148-babf20351dd7 h1:FUL3b97ZY2EPqg2NbXKuMHs5pXJB9hjj1fDHnF2vl28=
@@ -302,8 +291,8 @@ golang.org/x/sys v0.0.0-20180909124046-d0be0721c37e/go.mod h1:STP8DvDyc/dI5b8T5h
 golang.org/x/sys v0.0.0-20190215142949-d0b11bdaac8a/go.mod h1:STP8DvDyc/dI5b8T5hshtkjS+E42TnysNCUPdjciGhY=
 golang.org/x/sys v0.0.0-20190412213103-97732733099d/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
 golang.org/x/sys v0.0.0-20190909082730-f460065e899a/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
-golang.org/x/sys v0.0.0-20190910064555-bbd175535a8b h1:3S2h5FadpNr0zUUCVZjlKIEYF+KaX/OBplTGo89CYHI=
-golang.org/x/sys v0.0.0-20190910064555-bbd175535a8b/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
+golang.org/x/sys v0.1.0 h1:kunALQeHf1/185U1i0GOB/fy1IPRDDpuoOOqRReG57U=
+golang.org/x/sys v0.1.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
 golang.org/x/text v0.3.0/go.mod h1:NqM8EUOU14njkJ3fqMW+pc6Ldnwhi/IjpwHt7yyuwOQ=
 golang.org/x/text v0.3.2 h1:tW2bmiBqwgJj/UpqtC8EpXEZVYOwU0yG4iWbprSVAcs=
 golang.org/x/text v0.3.2/go.mod h1:bEr9sfX3Q8Zfm5fL9x+3itogRgK3+ptLWKqgva+5dAk=
